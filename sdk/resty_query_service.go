@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
+
 	binary_proto "github.com/blockchain-jd-com/framework-go/binary-proto"
 	"github.com/blockchain-jd-com/framework-go/crypto/framework"
 	"github.com/blockchain-jd-com/framework-go/ledger_model"
@@ -13,8 +16,6 @@ import (
 	"github.com/blockchain-jd-com/framework-go/utils/bytes"
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
-	"net/url"
-	"strconv"
 )
 
 /*
@@ -581,9 +582,10 @@ func (r RestyQueryService) GetContract(ledgerHash framework.HashDigest, address 
 		MerkleSnapshot: ledger_model.MerkleSnapshot{
 			RootHash: base58.MustDecode(contract.Get("rootHash").String()),
 		},
-		ChainCode:  bytes.StringToBytes(contract.Get("chainCode").String()),
-		State:      ledger_model.NORMAL.GetValueByName(contract.Get("state").String()).(ledger_model.AccountState),
-		Permission: parseDataPermission(contract.Get("permission")),
+		ChainCodeVersion: contract.Get("chainCodeVersion").Int(),
+		ChainCode:        bytes.StringToBytes(contract.Get("chainCode").String()),
+		State:            ledger_model.NORMAL.GetValueByName(contract.Get("state").String()).(ledger_model.AccountState),
+		Permission:       parseDataPermission(contract.Get("permission")),
 	}
 
 	return

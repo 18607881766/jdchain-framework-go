@@ -2,11 +2,12 @@ package test
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/blockchain-jd-com/framework-go/crypto/classic"
 	"github.com/blockchain-jd-com/framework-go/crypto/framework"
@@ -370,13 +371,19 @@ func TestContractInvoke(t *testing.T) {
 	// 创建交易
 	txTemp := service.NewTransaction(ledgerHashs[0])
 
-	contractAddress := base58.MustDecode("LdeNtwnPaHTVDqH8jxwWXVYqioY8KZFoi5drS")
+	contractAddress := base58.MustDecode("LdeNn4JWEGowm6x53rShHLjxoXaZS73fMrPWk")
 
 	// 创建合约调用交易，请修改数据账户地址为链上已经存在的数据账户地址
 	txTemp = service.NewTransaction(ledgerHashs[0])
 	// ContractEvents Deprecated
 	// err = txTemp.ContractEvents().Send(contractAddress, 0, "registerUser", "至少32位字节数----------------------------")
-	err = txTemp.Contract(contractAddress).Invoke("registerUser", "至少32位字节数----------------------------")
+	// 查询合约版本
+	contract, err := service.GetContract(ledgerHashs[0], "LdeNn4JWEGowm6x53rShHLjxoXaZS73fMrPWk")
+	version := int64(-1)
+	if err == nil {
+		version = contract.ChainCodeVersion
+	}
+	err = txTemp.Contract(contractAddress).InvokeWithVersion(version, "registerUser", "至少32位字节数----------------------------")
 	require.Nil(t, err)
 	// TX 准备就绪；
 	prepTx := txTemp.Prepare()
