@@ -1,12 +1,16 @@
 package sdk
 
 import (
+	gbytes "bytes"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	binary_proto "github.com/blockchain-jd-com/framework-go/binary-proto"
 	"github.com/blockchain-jd-com/framework-go/crypto/framework"
@@ -16,6 +20,8 @@ import (
 	"github.com/blockchain-jd-com/framework-go/utils/bytes"
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
+	"github.com/tjfoc/gmsm/gmtls"
+	gmx509 "github.com/tjfoc/gmsm/x509"
 )
 
 /*
@@ -26,12 +32,15 @@ import (
 var _ ledger_model.BlockChainLedgerQueryService = (*RestyQueryService)(nil)
 
 type RestyQueryService struct {
-	host     string
-	port     int
-	secure   bool
-	client   *resty.Client
-	baseUrl  string
-	security *SSLSecurity
+	host       string
+	port       int
+	secure     bool
+	gmSecure   bool
+	client     *resty.Client
+	gmClient   *http.Client // 国密TLS客户端
+	baseUrl    string
+	security   *SSLSecurity
+	gmSecurity *GMSSLSecurity
 }
 
 func NewRestyQueryService(host string, port int) *RestyQueryService {
@@ -66,16 +75,58 @@ func NewSecureRestyQueryService(host string, port int, security *SSLSecurity) *R
 	return r
 }
 
-func (r RestyQueryService) query(url string) (data gjson.Result, err error) {
-	resp, err := r.client.R().Get(r.baseUrl + url)
-	if err != nil {
-		return
-	}
-	if !resp.IsSuccess() {
-		return data, errors.New(resp.String())
+func NewGMSecureRestyQueryService(host string, port int, security *GMSSLSecurity) *RestyQueryService {
+	baseUrl := fmt.Sprintf("https://%s:%d", host, port)
+
+	var certPool *gmx509.CertPool
+	if security != nil {
+		certPool = security.RootCerts
 	}
 
-	wrp := gjson.ParseBytes(resp.Body())
+	config := &gmtls.Config{
+		GMSupport:          &gmtls.GMSupport{},
+		RootCAs:            certPool,
+		ClientAuth:         gmtls.NoClientCert,
+		InsecureSkipVerify: security == nil || security.RootCerts == nil,
+	}
+
+	r := &RestyQueryService{
+		host:       host,
+		port:       port,
+		secure:     true,
+		gmSecure:   true,
+		gmClient:   gmtls.NewCustomHTTPSClient(config),
+		baseUrl:    baseUrl,
+		gmSecurity: security,
+	}
+
+	return r
+}
+
+func (r RestyQueryService) query(url string) (data gjson.Result, err error) {
+	var wrp gjson.Result
+	if !r.gmSecure {
+		resp, err := r.client.R().Get(r.baseUrl + url)
+		if err != nil {
+			return data, err
+		}
+		if !resp.IsSuccess() {
+			return data, errors.New(resp.String())
+		}
+		wrp = gjson.ParseBytes(resp.Body())
+	} else {
+		response, err := r.gmClient.Get(r.baseUrl + url)
+		if err != nil {
+			return data, err
+		}
+		defer response.Body.Close()
+		raw, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return data, err
+		}
+		wrp = gjson.ParseBytes(raw)
+	}
+
 	// 数据不存在
 	if wrp.Type == gjson.Null {
 		return data, errors.New("empty data")
@@ -87,15 +138,39 @@ func (r RestyQueryService) query(url string) (data gjson.Result, err error) {
 }
 
 func (r RestyQueryService) queryWithParams(url string, params map[string]string) (data gjson.Result, err error) {
-	resp, err := r.client.R().SetQueryParams(params).Get(r.baseUrl + url)
-	if err != nil {
-		return data, err
-	}
-	if !resp.IsSuccess() {
-		return data, errors.New(resp.String())
+	var wrp gjson.Result
+	if !r.gmSecure {
+		resp, err := r.client.R().SetQueryParams(params).Get(r.baseUrl + url)
+		if err != nil {
+			return data, err
+		}
+		if !resp.IsSuccess() {
+			return data, errors.New(resp.String())
+		}
+		wrp = gjson.ParseBytes(resp.Body())
+	} else {
+		req, err := http.NewRequest("GET", r.baseUrl+url, nil)
+		if err != nil {
+			return data, err
+		}
+		q := req.URL.Query()
+		for k, v := range params {
+			q.Add(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
+
+		response, err := r.gmClient.Do(req)
+		if err != nil {
+			return data, err
+		}
+		defer response.Body.Close()
+		raw, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return data, err
+		}
+		wrp = gjson.ParseBytes(raw)
 	}
 
-	wrp := gjson.ParseBytes(resp.Body())
 	// 数据不存在
 	if wrp.Type == gjson.Null {
 		return data, errors.New("empty data")
@@ -107,15 +182,35 @@ func (r RestyQueryService) queryWithParams(url string, params map[string]string)
 }
 
 func (r RestyQueryService) queryWithParamsFromValues(url string, params url.Values) (data gjson.Result, err error) {
-	resp, err := r.client.R().SetQueryParamsFromValues(params).Get(r.baseUrl + url)
-	if err != nil {
-		return
-	}
-	if !resp.IsSuccess() {
-		return data, errors.New(resp.String())
+	var wrp gjson.Result
+	if !r.gmSecure {
+		resp, err := r.client.R().SetQueryParamsFromValues(params).Get(r.baseUrl + url)
+		if err != nil {
+			return data, err
+		}
+		if !resp.IsSuccess() {
+			return data, errors.New(resp.String())
+		}
+		wrp = gjson.ParseBytes(resp.Body())
+	} else {
+		req, err := http.NewRequest("GET", r.baseUrl+url, strings.NewReader(params.Encode()))
+		if err != nil {
+			return data, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		response, err := r.gmClient.Do(req)
+		if err != nil {
+			return data, err
+		}
+		defer response.Body.Close()
+		raw, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return data, err
+		}
+		wrp = gjson.ParseBytes(raw)
 	}
 
-	wrp := gjson.ParseBytes(resp.Body())
 	// 数据不存在
 	if wrp.Type == gjson.Null {
 		return data, errors.New("empty data")
@@ -127,15 +222,33 @@ func (r RestyQueryService) queryWithParamsFromValues(url string, params url.Valu
 }
 
 func (r RestyQueryService) queryWithBody(url string, params interface{}) (data gjson.Result, err error) {
-	resp, err := r.client.R().SetBody(params).Post(r.baseUrl + url)
-	if err != nil {
-		return
-	}
-	if !resp.IsSuccess() {
-		return data, errors.New(resp.String())
+	var wrp gjson.Result
+	if !r.gmSecure {
+		resp, err := r.client.R().SetBody(params).Post(r.baseUrl + url)
+		if err != nil {
+			return data, err
+		}
+		if !resp.IsSuccess() {
+			return data, errors.New(resp.String())
+		}
+		wrp = gjson.ParseBytes(resp.Body())
+	} else {
+		body, err := json.Marshal(params)
+		if err != nil {
+			return data, err
+		}
+		response, err := r.gmClient.Post(r.baseUrl+url, "application/json", gbytes.NewBuffer(body))
+		if err != nil {
+			return data, err
+		}
+		defer response.Body.Close()
+		raw, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return data, err
+		}
+		wrp = gjson.ParseBytes(raw)
 	}
 
-	wrp := gjson.ParseBytes(resp.Body())
 	// 数据不存在
 	if wrp.Type == gjson.Null {
 		return data, errors.New("empty data")

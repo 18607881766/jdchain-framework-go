@@ -4,9 +4,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io/ioutil"
+
+	gbytes "bytes"
+
 	binary_proto "github.com/blockchain-jd-com/framework-go/binary-proto"
 	"github.com/blockchain-jd-com/framework-go/ledger_model"
 	"github.com/go-resty/resty/v2"
+	"github.com/tjfoc/gmsm/gmtls"
+	gmx509 "github.com/tjfoc/gmsm/x509"
 )
 
 /*
@@ -17,11 +23,13 @@ import (
 var _ ledger_model.TransactionService = (*RestyTxService)(nil)
 
 type RestyTxService struct {
-	host     string
-	port     int
-	secure   bool
-	url      string
-	security *SSLSecurity
+	host       string
+	port       int
+	secure     bool
+	gmSecure   bool
+	url        string
+	security   *SSLSecurity
+	gmSecurity *GMSSLSecurity
 }
 
 func NewRestyTxService(host string, port int) *RestyTxService {
@@ -45,9 +53,31 @@ func NewSecureRestyTxService(host string, port int, security *SSLSecurity) *Rest
 	}
 }
 
-func (r *RestyTxService) Process(txRequest ledger_model.TransactionRequest) (response ledger_model.TransactionResponse, err error) {
-	msg, _ := binary_proto.NewCodec().Encode(txRequest)
+func NewGMSecureRestyTxService(host string, port int, security *GMSSLSecurity) *RestyTxService {
+	url := fmt.Sprintf("https://%s:%d/rpc/tx", host, port)
+	return &RestyTxService{
+		host:       host,
+		port:       port,
+		secure:     true,
+		gmSecure:   true,
+		url:        url,
+		gmSecurity: security,
+	}
+}
 
+func (r *RestyTxService) Process(txRequest ledger_model.TransactionRequest) (response ledger_model.TransactionResponse, err error) {
+	msg, err := binary_proto.NewCodec().Encode(txRequest)
+	if err != nil {
+		return ledger_model.TransactionResponse{}, err
+	}
+	if !r.gmSecure {
+		return r.process(msg)
+	} else {
+		return r.gmProcess(msg)
+	}
+}
+
+func (r *RestyTxService) process(msg []byte) (response ledger_model.TransactionResponse, err error) {
 	client := resty.New()
 	if r.secure {
 		if r.security != nil {
@@ -69,6 +99,36 @@ func (r *RestyTxService) Process(txRequest ledger_model.TransactionRequest) (res
 		return
 	}
 	if tresp, err := binary_proto.NewCodec().Decode(resp.Body()); err != nil {
+		return ledger_model.TransactionResponse{}, err
+	} else {
+		return tresp.(ledger_model.TransactionResponse), nil
+	}
+}
+
+func (r *RestyTxService) gmProcess(msg []byte) (response ledger_model.TransactionResponse, err error) {
+	var certPool *gmx509.CertPool
+	if r.gmSecurity != nil {
+		certPool = r.gmSecurity.RootCerts
+	}
+	config := &gmtls.Config{
+		GMSupport:          &gmtls.GMSupport{},
+		RootCAs:            certPool,
+		ClientAuth:         gmtls.NoClientCert,
+		InsecureSkipVerify: r.security == nil || r.security.RootCerts == nil,
+	}
+
+	gmClient := gmtls.NewCustomHTTPSClient(config)
+	result, err := gmClient.Post(r.url, "application/bin-obj", gbytes.NewBuffer(msg))
+	defer result.Body.Close()
+	if err != nil {
+		return ledger_model.TransactionResponse{}, err
+	}
+	raw, err := ioutil.ReadAll(result.Body)
+	if err != nil {
+		return ledger_model.TransactionResponse{}, err
+	}
+
+	if tresp, err := binary_proto.NewCodec().Decode(raw); err != nil {
 		return ledger_model.TransactionResponse{}, err
 	} else {
 		return tresp.(ledger_model.TransactionResponse), nil

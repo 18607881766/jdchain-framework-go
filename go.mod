@@ -1,6 +1,6 @@
 module github.com/blockchain-jd-com/framework-go
 
-go 1.13
+go 1.14
 
 require (
 	github.com/ZZMarquis/gm v1.3.2
@@ -12,3 +12,5 @@ require (
 	github.com/tjfoc/gmsm v1.4.1
 	golang.org/x/crypto v0.0.0-20201012173705-84dcc777aaee
 )
+
+replace github.com/tjfoc/gmsm => ../../tjfoc/gmsm
