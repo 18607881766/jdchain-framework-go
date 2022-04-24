@@ -25,7 +25,14 @@ func TestSSLConnect(t *testing.T) {
 	// 是否建立国密安全连接
 	if GM_SECURE {
 		// 判断是否忽略证书
-		if len(SSL_ROOT_CERT) > 0 {
+		if len(SSL_ROOT_CERT) > 0 && len(SSL_CLIENT_ENC_KEY) > 0 && len(SSL_CLIENT_ENC_CERT) > 0 && len(SSL_CLIENT_SIGN_KEY) > 0 && len(SSL_CLIENT_SIGN_CERT) > 0 {
+			security, err := sdk.NewTwoWayGMSSLSecurity(SSL_ROOT_CERT, SSL_CLIENT_SIGN_CERT, SSL_CLIENT_SIGN_KEY, SSL_CLIENT_ENC_CERT, SSL_CLIENT_ENC_KEY)
+			assert.Nil(t, err)
+			serviceFactory = sdk.MustGMSecureConnect(GATEWAY_HOST, GATEWAY_PORT, NODE_KEY, security)
+			// serviceFactory = sdk.MustGMSecureConnectWithoutUserKey(GATEWAY_HOST, GATEWAY_PORT, security)
+
+			serviceFactory.GetBlockchainService()
+		} else if len(SSL_ROOT_CERT) > 0 {
 			security, err := sdk.NewGMSSLSecurity(SSL_ROOT_CERT)
 			assert.Nil(t, err)
 			serviceFactory = sdk.MustGMSecureConnect(GATEWAY_HOST, GATEWAY_PORT, NODE_KEY, security)
@@ -59,6 +66,10 @@ func TestSSLConnect(t *testing.T) {
 
 		serviceFactory.GetBlockchainService()
 	}
+
+	hd, err := serviceFactory.GetBlockchainService().GetLedgerHashs()
+	require.Nil(t, err)
+	fmt.Println(hd[0].Bytes.ToString())
 }
 
 /*

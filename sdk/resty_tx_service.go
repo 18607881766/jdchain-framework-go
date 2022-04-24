@@ -9,10 +9,10 @@ import (
 	gbytes "bytes"
 
 	binary_proto "github.com/blockchain-jd-com/framework-go/binary-proto"
+	"github.com/blockchain-jd-com/framework-go/gmsm/gmtls"
+	gmx509 "github.com/blockchain-jd-com/framework-go/gmsm/x509"
 	"github.com/blockchain-jd-com/framework-go/ledger_model"
 	"github.com/go-resty/resty/v2"
-	"github.com/tjfoc/gmsm/gmtls"
-	gmx509 "github.com/tjfoc/gmsm/x509"
 )
 
 /*

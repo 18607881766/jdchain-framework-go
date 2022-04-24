@@ -14,14 +14,14 @@ import (
 
 	binary_proto "github.com/blockchain-jd-com/framework-go/binary-proto"
 	"github.com/blockchain-jd-com/framework-go/crypto/framework"
+	"github.com/blockchain-jd-com/framework-go/gmsm/gmtls"
+	gmx509 "github.com/blockchain-jd-com/framework-go/gmsm/x509"
 	"github.com/blockchain-jd-com/framework-go/ledger_model"
 	"github.com/blockchain-jd-com/framework-go/utils/base58"
 	"github.com/blockchain-jd-com/framework-go/utils/base64"
 	"github.com/blockchain-jd-com/framework-go/utils/bytes"
 	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
-	"github.com/tjfoc/gmsm/gmtls"
-	gmx509 "github.com/tjfoc/gmsm/x509"
 )
 
 /*
@@ -82,11 +82,17 @@ func NewGMSecureRestyQueryService(host string, port int, security *GMSSLSecurity
 	if security != nil {
 		certPool = security.RootCerts
 	}
-
+	var certificates []gmtls.Certificate
+	if nil != security && nil != security.EncCert && nil != security.SigCert {
+		certificates = []gmtls.Certificate{*security.SigCert, *security.EncCert}
+	} else {
+		certificates = []gmtls.Certificate{}
+	}
 	config := &gmtls.Config{
 		GMSupport:          &gmtls.GMSupport{},
 		RootCAs:            certPool,
 		ClientAuth:         gmtls.NoClientCert,
+		Certificates:       certificates,
 		InsecureSkipVerify: security == nil || security.RootCerts == nil,
 	}
 
